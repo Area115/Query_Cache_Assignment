@@ -483,7 +483,114 @@ function fetch_or_generate_query_plan(sql_query):
 * Once generated, the new plan is stored in the cache for future reuse.
 <br>
 
+
 ***
+**Example to explain chache mechanism for nested sub-queries :**
+<br>
+
+Query 1 : 
+
+```python
+SELECT name FROM employees
+    WHERE salary > (
+        SELECT AVG(salary) FROM employees WHERE dept = 'IT'
+    )
+```
+<br> 
+
+Query 2 :
+
+```python
+SELECT name FROM employees
+    WHERE salary > (
+        SELECT AVG(salary) FROM employees WHERE dept = 'Finance'
+    )
+```
+<br>
+
+* For query 1 , there are two structures present along with whole query's normalized form
+  1. SELECT name FROM employees WHERE salary > ?
+  2. SELECT AVG(salary) FROM employees WHERE dept = ?
+  3. Whole normalized form : SELECT name FROM employees  WHERE salary > ( SELECT AVG(salary) FROM employees WHERE dept = ? )
+ 
+<br>
+This will store inner patterns along with entire query's normalized form , so that when inner query repeats in future its plan will be fetched from cache.
+
+So, initially cache has no plans stored so both structure will make cache miss. <br>
+New plan will be generated for both normalized form and stored in cache with unique plan ID
+
+```python
+ Outer Query: SELECT name FROM employees WHERE salary > ( ? )
+{
+      "plan_id": "PLN_7c3f8d68",
+      "plan_type": "Index Scan",
+      "tables": [
+            "employees"
+      ]
+}
+
+ Inner Query Plans:
+
+   Subquery: SELECT AVG ( salary ) FROM employees WHERE dept = ?
+{
+      "plan_id": "PLN_5ef3626a",
+      "plan_type": "Index Scan",
+      "tables": [
+            "employees"
+      ]
+}
+
+Cache hits for current query :  0
+
+```
+
+** Case when query 2 hits database :**
+* Now query 2 follows same structure and its normalized form is present in cache.
+* So it will take only one cache hit for query 2 and entire plan will be fetched from cache as below.
+
+
+```python
+================================================================================
+ # QUERY PLAN RESULTS for :  
+    SELECT name FROM employees
+    WHERE salary > (
+        SELECT AVG(salary) FROM employees WHERE dept = 'Finance'
+    )
+    
+================================================================================
+
+ Outer Query: SELECT name FROM employees WHERE salary > ( ? )
+{
+      "plan_id": "PLN_7c3f8d68",
+      "plan_type": "Index Scan",
+      "tables": [
+            "employees"
+      ]
+}
+
+ Inner Query Plans:
+
+   Subquery: SELECT AVG ( salary ) FROM employees WHERE dept = ?
+{
+      "plan_id": "PLN_5ef3626a",
+      "plan_type": "Index Scan",
+      "tables": [
+            "employees"
+      ]
+}
+
+--------------------------------------------------------------------------------
+# Extracted Literals:
+    ["'Finance'"]
+Cache hits for current query :  1
+```
+
+**My Assumptions :**
+* I am operating nested queries in splitted form to store and reuse plans for sub-queries when they repeat.
+* If same nested query appears again, it will fetch splitted plan from cache in form of outer-query-plan ---> followed by inner-query-plans.
+
+
+
 **Testing :**
 ```python
 run command : python -u "d:\query_plan_cache\test_main.py" > .\output.txt
