@@ -147,22 +147,38 @@ This structure makes the system easy to maintain, extend, and test independently
 SQL Query Input
       │
       ▼
-ParseExtractQuery.py  →  Normalizes Query  →  Returns normalized form + literals
+walker_listner.py  →  Uses ANTLR4 Parser + Listener to:
+                        • Parse SQL into a structured parse tree
+                        • Replace all literal values with '?'
+                        • Identify leaf-level (straightforward) subqueries
+                        • Mask nested subqueries intelligently
+                        • Return:
+                              - Full normalized query
+                              - List of independent subqueries
+                              - Outer query with inner queries replaced or preserved
+                              - Extracted literals
       │
       ▼
-Main.py (QueryPlanManager)
-  ├── Checks cache for existing plan
-  ├── If miss → calls generate_dummy_plan()
-  └── Updates cache metrics (hit/miss count)
+main.py (QueryPlanManager)
+  ├── Checks for existing plans in cache
+  ├── If plan found → Cache Hit → Reuses plan
+  ├── If plan not found → Cache Miss → Calls generate_dummy_plan()
+  ├── Stores:
+  │     • Normalized full query
+  │     • Independent subquery plans
+  └── Updates cache metrics:
+          - Total Requests
+          - Hits / Misses
+          - Complexity Score
       │
       ▼
-Test_main.py
-  → Executes multiple queries
-  → Measures cache effectiveness & total execution time
-      │
-      ▼
-Output.txt
-  → Stores results and metrics for analysis
+Output (Terminal / File)
+  → Displays:
+        • Outer + Inner Query Plans
+        • Normalized Query Structure
+        • Extracted Literals
+        • Cache Hit/Miss Summary
+        • Execution Time Comparison ( At the end of testing queries )
 ```
 ***
 
