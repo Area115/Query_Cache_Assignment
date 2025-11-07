@@ -43,35 +43,47 @@ Each SQL query passes through a defined series of stages — from parsing to cac
 
 **Workflow Overview**
 ```python
-Input SQL Query
+SQL Query Input
       │
       ▼
-ANTLR Parser (SQLite Grammar)
+walker_listner.py  →  Uses ANTLR4 Parser + Listener to:
+                        • Extract all SELECT blocks (outer + inner)
+                        • Replace literals with placeholders (?)
+                        • Mask nested subqueries intelligently
+                        • Return:
+                              - Full normalized query
+                              - Leaf-level subqueries
+                              - Outer query with leafs preserved
+                              - Extracted literals
       │
       ▼
-Parse Tree Generation
+main.py (QueryPlanManager)
+  ├── Uses normalized forms from listener
+  ├── Searches cache:
+  │     • Full query plan cache
+  │     • Subquery-level plans (reused if matching)
+  ├── If cache miss → Simulates plan generation using `generate_dummy_plan()`
+  └── Updates cache metrics:
+          - Total requests
+          - Hits / Misses
+          - Complexity score (proxy for planning cost)
       │
       ▼
-DFS Traversal on Tree
-  → Identify all SELECT nodes
-  → Extract subqueries
-  → Replace literals & inner SELECTs with '?'
+test_main.py
+  → Runs workload of 20–30 test queries (simple → nested)
+  → Measures:
+        • Execution time with & without cache
+        • Cache hit ratio
+        • Complexity-based performance simulation
       │
       ▼
-Normalized Query Output
-  → Used as cache key
-  → Collect literals list
-      │
-      ▼
-Check Cache
-  ├── Cache Hit → Fetch existing plan
-  └── Cache Miss → Generate new mock plan (JSON)
-      │
-      ▼
-Return:
-  • Normalized Query  
-  • Execution Plan  
-  • Literal Bindings
+📄 Output
+  → Prints formatted query plans:
+        - Outer plan + inner subplans
+        - Cache hit/miss summary
+        - Extracted literals
+        - Final performance comparison matrix
+
 ```
 **Explanation**
 * ANTLR Integration: Converts SQL queries into a parse tree for structural analysis.
