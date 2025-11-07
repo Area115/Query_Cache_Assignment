@@ -52,13 +52,14 @@ class QueryPlanManager():
     def fetch_or_generate_query_plan(self, sql_query) -> dict:
         cache_hits_of_current_query = 0 
 
-        full_norm, leaf_list, outer_keep_leaf, literals = self.extract_and_normalize.process(sql_query)
+        full_norm, leaf_list, outer_keep_leaf, literals = self.extract_and_normalize.process(sql_query) 
         full_norm_copy = full_norm
 
-        # CASE 1: Single straight-forward query
+        # Check if the query is a single (non-nested) SELECT
         if len(leaf_list) == 1 and leaf_list[0] == full_norm:
+            # This means input query is a single query
             self.cache_metrics["requests"] += 1
-            if full_norm in self.query_cache and self.use_cache:
+            if full_norm in self.query_cache and self.use_cache: 
                 cache_hits_of_current_query += 1
                 self.cache_metrics["hits"] += 1
                 return self.query_cache[full_norm], literals, cache_hits_of_current_query
@@ -69,61 +70,55 @@ class QueryPlanManager():
                 self.query_cache[full_norm] = new_plan
                 return new_plan, literals, cache_hits_of_current_query
 
-        # CASE 2: Handle subqueries (Nested SELECT)
-        if leaf_list:
-            sub_query_plans = {}
-
-            # start from outer_keep_leaf
-            outer_query_base = outer_keep_leaf
-
-            # replace leaf subqueries with placeholders
-            for inner_query in leaf_list:
-                pattern = re.escape(inner_query)
-                outer_query_base = re.sub(pattern, "?", outer_query_base)
-
-                self.cache_metrics["requests"] += 1
-                if inner_query in self.query_cache and self.use_cache:
-                    cache_hits_of_current_query += 1
-                    self.cache_metrics["hits"] += 1
-                    sub_query_plans[inner_query] = self.query_cache[inner_query]
-                else:
-                    self.cache_metrics["misses"] += 1
-                    new_plan = self.generate_dummy_plan(inner_query)
-                    self.total_complexity_score += self.estimate_query_complexity(inner_query)
-                    sub_query_plans[inner_query] = new_plan
-                    self.query_cache[inner_query] = new_plan
-
-            #✅ Consistent outer query plan key
-            outer_key = outer_query_base.strip()
-
-            # If plan already in cache
+        # Check for full query hit in cache
+        if full_norm_copy in self.query_cache and self.use_cache:
+            self.cache_metrics["hits"] += 1
             self.cache_metrics["requests"] += 1
-            if outer_key in self.query_cache and self.use_cache:
-                cache_hits_of_current_query += 1
-                self.cache_metrics["hits"] += 1
-                return self.query_cache[outer_key], literals, cache_hits_of_current_query
+            cache_hits_of_current_query += 1
+            return self.query_cache[full_norm_copy], literals, cache_hits_of_current_query
+        else:
+            # Cache miss for full query; check subqueries
+            if leaf_list:
+                sub_query_plans = {}
+                for inner_query in leaf_list:
+                    # Replace subquery with placeholder to avoid duplicate plan generation
+                    pattern = re.escape(inner_query)
+                    full_norm_copy = re.sub(pattern, '?', full_norm_copy)
+                    self.cache_metrics["requests"] += 1
 
-            # Otherwise, generate new outer plan
-            self.cache_metrics["misses"] += 1
-            new_plan_for_main_query = self.generate_dummy_plan(outer_key)
-            self.total_complexity_score += self.estimate_query_complexity(outer_key)
+                    if inner_query in self.query_cache and self.use_cache:
+                        cache_hits_of_current_query += 1
+                        self.cache_metrics["hits"] += 1
+                        cache_hits_of_current_query += 1
+                        sub_query_plans[inner_query] = self.query_cache[inner_query]
+                    else:
+                        self.cache_metrics["misses"] += 1
+                        new_plan = self.generate_dummy_plan(inner_query)
+                        self.total_complexity_score += self.estimate_query_complexity(inner_query)
+                        sub_query_plans[inner_query] = new_plan 
+                        self.query_cache[inner_query] = new_plan 
 
-            final_plan = {
-                outer_key: new_plan_for_main_query,
-                "Inner Query Plans : ": sub_query_plans
-            }
+                # Generate plan for main (outer) query after subquery plans
+                new_plan_for_main_query = self.generate_dummy_plan(full_norm_copy)
+                self.total_complexity_score += self.estimate_query_complexity(full_norm_copy)
+                self.cache_metrics["requests"] += 1
+                self.cache_metrics["misses"] += 1
 
-            # Store under same key used for lookup
-            self.query_cache[outer_key] = final_plan
-            return final_plan, literals, cache_hits_of_current_query
+                final_plan = {}
+                final_plan[full_norm_copy] = new_plan_for_main_query
+                final_plan["Inner Query Plans : "] = sub_query_plans
+                self.query_cache[full_norm] = final_plan
+                return final_plan, literals, cache_hits_of_current_query
 
-        # CASE 3: Fallback (no subqueries)
-        self.cache_metrics["misses"] += 1
-        self.cache_metrics["requests"] += 1
-        new_plan = self.generate_dummy_plan(full_norm_copy)
-        self.total_complexity_score += self.estimate_query_complexity(full_norm_copy)
-        self.query_cache[full_norm_copy] = new_plan
-        return new_plan, literals, cache_hits_of_current_query
+            else:
+                # Simple query — no subqueries
+                self.cache_metrics["misses"] += 1
+                self.cache_metrics["requests"] += 1
+                new_plan = self.generate_dummy_plan(full_norm_copy)
+                self.total_complexity_score += self.estimate_query_complexity(full_norm_copy)
+                self.query_cache[full_norm_copy] = new_plan
+                return new_plan, literals, cache_hits_of_current_query
+
 
 
 
