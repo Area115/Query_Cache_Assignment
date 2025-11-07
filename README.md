@@ -356,15 +356,7 @@ SELECT * FROM orders WHERE customer_id IN ( ? )
 
 **Cache Metrics**: Track the performance of the caching system by counting total requests, cache hits, and cache misses to measure overall efficiency and reuse effectiveness.
 
-***
-<br>
 
-**End to End flow of input query from Parsing --> Normalization --> Plan :** 
-<br> 
-
-![Alt text](https://github.com/Area115/Query_Plan_Caching/blob/8a4897be5757255fb5d9c102f8718656fd32dd11/images/functional_diagram_updated.png)
-
-<br> 
 
 *** 
 
@@ -434,23 +426,47 @@ def estimate_query_complexity(self , query: str) -> int:
 <br>
 
 **Cache Hit/Miss handling**
+
+This is Pseudo code 
 <br>
 
 ```python
-execution_plan = {}
-        for normalized_query in normalized_queries:
-            self.cache_metrics["requests"] += 1
+function fetch_or_generate_query_plan(sql_query):
 
-            # ✅ FIXED: use normalized_query (not normalized_form from outer scope)
-            if normalized_query in self.query_cache and self.flag:
-                self.cache_metrics["hits"] += 1
-                execution_plan[normalized_query] = self.query_cache[normalized_query]
-            else:
-                self.cache_metrics["misses"] += 1
-                new_plan = self.generate_dummy_plan(normalized_query)
-                self.query_cache[normalized_query] = new_plan
-                execution_plan[normalized_query] = new_plan
-                self.total_complexity_score += self.estimate_query_complexity(normalized_query)
+    # Step 1: Normalize query and extract details
+    full_norm, leaf_queries, masked_outer, literals = normalize(sql_query)
+
+    # Step 2: If query is simple (no subqueries)
+    if leaf_queries has only one and equals full_norm:
+        if full_norm exists in cache:
+            return cache[full_norm]   # ✅ Cache Hit
+        else:
+            plan = generate_dummy_plan(full_norm)
+            cache[full_norm] = plan   # ❌ Cache Miss → store new
+            return plan
+
+    # Step 3: For complex queries with nested subqueries
+    subquery_plans = {}
+    for each subquery in leaf_queries:
+        if subquery exists in cache:
+            subquery_plans[subquery] = cache[subquery]  # ✅ Reuse
+        else:
+            plan = generate_dummy_plan(subquery)
+            cache[subquery] = plan                      # ❌ New plan
+            subquery_plans[subquery] = plan
+
+        # Replace subquery text with '?' in main query
+        masked_outer = replace(subquery, '?', masked_outer)
+
+    # Step 4: Handle the outer (main) query
+    if full_norm exists in cache:
+        return cache[full_norm]   # ✅ Full query hit
+    else:
+        main_plan = generate_dummy_plan(masked_outer)
+        final_plan = { masked_outer: main_plan, "subqueries": subquery_plans }
+        cache[full_norm] = final_plan                  # ❌ Miss → store combined plan
+        return final_plan
+
 ```
 <br>
 
