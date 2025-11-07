@@ -86,12 +86,40 @@ test_main.py
 
 ```
 **Explanation**
-* ANTLR Integration: Converts SQL queries into a parse tree for structural analysis.
-* DFS Traversal: Recursively visits all nodes to find select_core and literal_value elements.
-* Normalization: Replaces literals and nested subqueries with ? placeholders for plan reuse.
-* Cache Management: Normalized queries serve as unique keys for fetching or generating mock plans.
-* Testing Simulation: Measures time, cache hits, and misses to evaluate cache performance.
+
+**ANTLR Integration:**
+1. Uses the ANTLR4 SQLite grammar to parse SQL queries into a structured syntax tree.
+2. This enables accurate recognition of SQL components such as SELECT, WHERE, and nested subqueries without manual string parsing.
+<br>
+
+**Walker–Listener Framework:**
+1. Replaces the earlier manual DFS traversal with an event-driven listener mechanism.
+2. ParseTreeWalker automatically triggers callbacks (e.g., enterSelect_core, enterLiteral_value) during traversal, simplifying nested query detection and literal extraction.
+   
+<br>
+
+**Normalization Process:**
+1. Each query is normalized by replacing literal values with "?" placeholders and masking nested subqueries intelligently.
+2. The listener distinguishes between leaf-level subqueries (which get their own cached plan) and composite queries (which reuse inner plans).
+
+<br>
+
+**Cache Management:**
+1. Normalized queries act as unique structural keys.
+2. When a query is executed, the system checks the cache for a matching normalized form — fetching an existing plan if available or generating a mock plan if not.
+
+<br>
+
+**Performance Simulation & Testing:**
+
+1. A separate test suite runs queries with and without caching, measuring:
+2. Cache hits and misses
+3. Complexity-based simulated plan generation cost
+3. Total and per-query execution times
+4. This demonstrates the effectiveness of query plan caching in reducing overall planning effort
+  
 ***
+
 **Core Components**
 
 The project is divided into modular Python files, each responsible for a specific part of the query plan caching workflow.
