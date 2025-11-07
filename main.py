@@ -1,4 +1,3 @@
-from ParseExtractQuery import ParseNormalizeQuery
 import re, hashlib, json, copy
 from walker_listner import ExtractAndNormalize
 import show_plan
