@@ -221,77 +221,82 @@ sql_stmt_list
 ```
 <br>
 
-Usefulness of ANTLR tree : 
-* Efficient traversal through each node and track nested SELECT and Literal values.
-* Depth First Search logic helps to detect sub-queries which can be fetch from cache if available.<br>
-
 ***
 <br>
 
 **Query Normalization Logic**
 
-Query normalization ensures that structurally similar SQL queries are treated as identical by the caching system — even if their literal values differ.
-This is achieved using ANTLR parse tree traversal and Depth-First Search (DFS) to replace variable components like constants and inner subqueries with placeholders (?).
+* Ensures that structurally identical SQL queries share the same cache entry, regardless of literal values.
+
+* Achieved using ANTLR’s parse tree traversal with the Walker–Listener framework for precise query structure analysis.
+
+* Replaces all variable parts — such as numbers, strings, and boolean constants — with placeholders (?).
+
+* Detects and masks nested subqueries, allowing reuse of existing plans for identical query patterns.
+
+* Produces normalized SQL, extracted literals, and leaf-level subqueries used as cache keys.
+
 <br>
+
 ```python
-def replace_node_with_placeholder(current_node):
-            start = current_node.start.tokenIndex
-            stop = current_node.stop.tokenIndex
-            for i in range(start, stop + 1):
-                token_stream.tokens[i].text = ""
-            token_stream.tokens[start].text = "?"   
-       
-     if hasattr(node, "getRuleIndex"):
-                rule = parser.ruleNames[node.getRuleIndex()]
+SQL Query Input
+      │
+      ▼
+┌───────────────────────────────┐
+│ ANTLR4 Parser & Token Stream  │
+│  → Builds a Parse Tree        │
+└───────────────────────────────┘
+      │
+      ▼
+Parse Tree Walker
+      │
+      ▼
+┌──────────────────────────────────────────────┐
+│ Listener 1: LiteralExtractorListener         │
+│  • Detects all literal values                │
+│  • Captures numbers, strings, booleans       │
+│  • Example: "age = 25" → "age = ?"           │
+└──────────────────────────────────────────────┘
+      │
+      ▼
+┌──────────────────────────────────────────────┐
+│ Listener 2: SubqueryCollector                │
+│  • Finds all SELECT blocks                   │
+│  • Detects leaf-level subqueries (no nested) │
+│  • Returns list of independent subqueries    │
+│    → e.g., [ "SELECT salary FROM emp WHERE id = ?" ]  │
+└──────────────────────────────────────────────┘
+      │
+      ▼
+┌──────────────────────────────────────────────┐
+│ Listener 3: MaskInnerSelectsListener         │
+│  • Walks through the tree                    │
+│  • Replaces nested SELECTs with '?'          │
+│  • Keeps outer SELECT body intact            │
+│  • Example:                                  │
+│    Input: SELECT * FROM A WHERE id IN (SELECT id FROM B)  │
+│    Output: SELECT * FROM A WHERE id IN (?)                 │
+└──────────────────────────────────────────────┘
+      │
+      ▼
+┌──────────────────────────────────────────────┐
+│ Listener 4: NormalizeQuery                   │
+│  • Performs final cleanup                    │
+│  • Replaces remaining literals with '?'      │
+│  • Converts "IN (?, ?, ?)" → "IN (??)"       │
+│  • Builds normalized SQL text                │
+└──────────────────────────────────────────────┘
+      │
+      ▼
+Final Normalization Output:
+  ├── Full Normalized Query
+  ├── List of Straightforward (Leaf) Subqueries
+  ├── Masked Outer Query (with leafs replaced)
+  └── Extracted Literals
 
-                # Replace literal values
-                if rule == "literal_value":
-                    self.literals_list.append(node.getText())
-                    replace_node_with_placeholder(node)
-                    return
-
-                # Replace quoted any_name (string identifiers)
-                if rule == "any_name":
-                    text = node.getText()
-                    if text.startswith('"') and text.endswith('"'):
-                        self.literals_list.append(text)
-                        replace_node_with_placeholder(node)
-                        return
-
-                # Replace only inner SELECTs (not outermost)
-                if rule == "select_core":
-                    if flag:
-                        flag = False
-                    else:
-                        replace_node_with_placeholder(node)
-                        return
 ```
 <br>
 
-
-**Flow of Normalization and Extraction of sub-queries**
-```python
-SQL Query  →  ANTLR Parse Tree
-      │
-      ▼
-DFS Traversal of Tree
-  ├── Detect "literal_value" nodes
-  │     → Replace with "?"
-  │     → Store in literals list
-  │
-  ├── Detect "select_core" (inner SELECTs)
-  │     → Extract and store subquery text (for logging/analysis)
-  │     → Replace inner SELECT with "?"
-  │
-  └── Keep outermost SELECT unchanged
-      │
-      ▼
-Return:
-  • Normalized Query (used as cache key)
-  • List of extracted literals (for binding)
-  • Collected inner subquery texts (for reference/metrics)
-
-```
 **Why to store sub-queries ?**
 * Each nested subquery is stored before being replaced with ?, ensuring it can be individually normalized and cached for future reuse.
 * When a query reappears with a different outer structure but an identical subquery, the system can fetch the existing plan for that subquery from cache instead of re-planning it.
